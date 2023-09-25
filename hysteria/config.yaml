@@ -1,0 +1,42 @@
+listen: :443
+tls:
+  cert: /etc/hysteria/certs/cert.crt
+  key: /etc/hysteria/certs/private.key
+auth:
+  type: password
+  password: IhxWvgWvIQjXx4aM4PxdGBTc50QFpD
+quic:
+  initStreamReceiveWindow: 8388608
+  maxStreamReceiveWindow: 8388608
+  initConnReceiveWindow: 20971520
+  maxConnReceiveWindow: 20971520
+  maxIdleTimeout: 60s
+  maxIncomingStreams: 1024
+  disablePathMTUDiscovery: false
+bandwidth:
+  up: 1 gbps
+  down: 1 gbps
+ignoreClientBandwidth: true
+disableUDP: false
+udpIdleTimeout: 60s
+resolver:
+  type: https
+  https:
+    addr: 1.1.1.1:443
+    timeout: 10s
+    sni: cloudflare-dns.com
+    insecure: false
+acl:
+  inline: 
+    - reject(*.ir)
+    - reject(all, udp/443)
+    - reject(geoip:ir)
+masquerade:
+  type: proxy
+  proxy:
+    url: https://vipofilm.com
+    rewriteHost: true 
+  listenHTTP: :80 
+  listenHTTPS: :443 
+  forceHTTPS: true
+
