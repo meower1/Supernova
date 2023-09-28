@@ -228,15 +228,15 @@ else
 blue "
 hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs
 "
-# Prints the qrcode for the specified link
-qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs"
-fi
-
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
 hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria
 "
 fi
+# Prints the qrcode for the specified link
+qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs"
+fi
+
 
 # Puts the link inside of temp file to be used in show_hysteria_conf function
 cat <<EOF > temp/hy.txt
@@ -306,13 +306,14 @@ clients
 blue "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic"
 echo
 echo
-qrencode -m 2 -t utf8 <<< "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic"
-
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
 tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic
 "
 fi
+
+qrencode -m 2 -t utf8 <<< "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic"
+
 
 cat <<EOF > temp/tuic.txt
 tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic"
