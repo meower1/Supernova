@@ -323,7 +323,7 @@ tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mod
 EOF
 }
 
-######################## Tuic Section End
+######################## Tuic Section End.
 
 install_brook() {
 rm temp/br.txt
