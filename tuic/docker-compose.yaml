@@ -1,0 +1,11 @@
+version: "3"
+services:
+  tuic-server:
+    container_name: tuic-server
+    image: monkeyray/tuic:latest
+    restart: always
+    network_mode: host
+    volumes:
+      - ./config.json:/etc/tuic/config.json:ro
+      - ../certs/cert.crt:/etc/tuic/cert.crt:ro
+      - ../certs/private.key:/etc/tuic/private.key:ro

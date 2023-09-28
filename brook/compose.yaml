@@ -1,0 +1,14 @@
+version: '3'
+services:
+  brook:
+    image: teddysun/brook
+    container_name: brook
+    restart: always
+    volumes:
+      - ../domain_certs/cert.crt:/etc/brook/cert.crt:ro
+      - ../domain_certs/private.key:/etc/brook/private.key:ro
+    ports:
+      - "2096:2096"
+      - "2096:2096/udp"
+    environment:
+      - ARGS=server -l :2096 -p password0 --blockGeoIP="IR"
