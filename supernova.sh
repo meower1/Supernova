@@ -211,7 +211,7 @@ blue "
 hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria
 "
 if [ ! -z "$ipv6" ]; then
-yellow " Irancell (Ipv6) : 
+yellow "Irancell (Ipv6) : 
 hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria
 "
 fi
@@ -233,7 +233,7 @@ qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=
 fi
 
 if [ ! -z "$ipv6" ]; then
-yellow " Irancell (Ipv6) : 
+yellow "Irancell (Ipv6) : 
 hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria
 "
 fi
