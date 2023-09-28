@@ -22,3 +22,11 @@ Supernova offers several essential features that set it apart:
 Explore Supernova's capabilities and streamline your UDP-based protocol setup. Whether you're looking to enhance security, optimize performance, or simplify your network configurations, Supernova has you covered.
 
 Feel free to contribute, report issues, or suggest improvements. We welcome your feedback and contributions to make Supernova even better!
+
+## ⚙️ Setup 
+Enter the following commands in your terminal
+```shell
+git clone https://github.com/meower1/Supernova.git
+cd Supernova
+bash supernova.sh
+```
