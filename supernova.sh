@@ -41,9 +41,11 @@ echo
 echo -e "${GREEN}Mieru (Sagernet + Mieru plugin)${PLAIN}":
 echo -e "${YELLOW}https://github.com/SagerNet/SagerNet/releases/download/0.8.1-rc03/SN-0.8.1-rc03-arm64-v8a.apk${PLAIN}"
 echo -e "${YELLOW}https://github.com/SagerNet/SagerNet/releases/download/mieru-plugin-1.15.1/mieru-plugin-1.15.1-arm64-v8a.apk${PLAIN}"
+echo
+echo -e "${GREEN}Naive (Naive plugin for Nekobox)${PLAIN}":
+echo -e "${YELLOW}https://github.com/SagerNet/SagerNet/releases/download/naive-plugin-116.0.5845.92-2/naive-plugin-116.0.5845.92-2-arm64-v8a.apk${PLAIN}"
 echo -e "${BLUE}========================================================${PLAIN}"
 echo
-
 }
 
 # ipv4_to_6() {   #work in progress...
@@ -114,6 +116,15 @@ uninstall_mieru() {
   mita stop
   rm temp/mi.txt
   sudo apt remove mita -y
+}
+
+uninstall_naive() {
+  sudo docker rm -f naiveproxy
+  rm temp/na.txt
+  rm -r /etc/naiveproxy
+  rm -r /var/www/html
+  rm -r /var/log/caddy
+  green "Naiveproxy has been uninstalled."
 }
 
 
@@ -370,7 +381,7 @@ if [ $brook_pick -eq 3 ] || [ $brook_pick -eq 4 ]; then
   ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
   ~/.acme.sh/acme.sh --register-account -m test69moa@gmail.com
   ~/.acme.sh/acme.sh --issue -d $br_domain --standalone
-  ~/.acme.sh/acme.sh --installcert -d $br_domain --key-file /root/Supernova/domain_certs/private.key --fullchain-file /root/Supernova/domain_certs/cert.crt
+    ~/.acme.sh/acme.sh --installcert -d $br_domain --key-file /root/Supernova/domain_certs/private.key --fullchain-file /root/Supernova/domain_certs/cert.crt
   clear
 fi  
 
@@ -581,6 +592,83 @@ password : $auth_pass
 
 EOF
 }
+
+install_naive() {
+rm temp/na.txt
+clear
+if [ $( docker ps -a | grep naiveproxy | wc -l ) -gt 0 ]; then
+  read -p "naiveproxy proxy container is already running would you like to reinstall? (Y/n)" na_reinstall
+  if [[ -z "$na_reinstall" || $na_reinstall = "Y" || $na_reinstall = "y" ]]; then 
+    uninstall_naive
+  else
+    exit 0
+  fi
+fi
+install_dependencies
+get_cert
+rm /etc/naiveproxy/Caddyfile
+mkdir -p /etc/naiveproxy /var/www/html /var/log/caddy
+auth_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
+server_ip=$(curl api.ipify.org)
+ipv6=$(curl -s6m8 ip.sb -k)
+clear
+
+read -rp "Please enter your domain name : " naive_domain
+[ -z "$naive_domain" ] && red "Domain name cannot be empty" && exit 1
+
+read -rp "Please enter the port to be used for Caddy [Default 80] : " caddy_port
+[ -z "$caddy_port" ] && caddy_port=80
+
+read -rp "Please enter the port to be used for Naive proxy [Default 443] : " naive_port
+[ -z "$naive_port" ] && naive_port=443
+
+read -rp "Please enter the username for Naive proxy [Default random] : " naive_usr
+[ -z "$naive_usr" ] && naive_usr=$(date +%s%N | md5sum | cut -c 1-8)
+
+read -rp "Please enter the password for Naive proxy [Default random] : " naive_pass
+[ -z "$naive_pass" ] && naive_pass=$(date +%s%N | md5sum | cut -c 1-8)
+
+read -rp "Please enter the forward domain for Naive proxy [Default vipofilm.com] : " naive_forward_domain
+[ -z "$naive_forward_domain" ] && naive_forward_domain=vipofilm.com
+
+cat <<EOF > /etc/naiveproxy/Caddyfile
+{
+http_port $caddy_port
+}
+:$naive_port, $naive_domain:$naive_port
+tls moamaema3e@gmail.com
+route {
+ forward_proxy {
+   basic_auth $naive_usr $naive_pass
+   hide_ip
+   hide_via
+   probe_resistance
+  }
+ reverse_proxy  https://$naive_forward_domain {
+   header_up  Host  {upstream_hostport}
+   header_up  X-Forwarded-Host  {host}
+  }
+}
+EOF
+
+(cd naive && docker compose up -d)
+
+clear
+clients
+
+blue "naive+https://$naive_usr:$naive_pass@$naive_domain:$naive_port"
+echo
+echo
+
+qrencode -m 2 -t utf8 <<< "naive+https://$naive_usr:$naive_pass@$naive_domain:$naive_port"
+
+
+cat <<EOF > temp/tuic.txt
+naive+https://$naive_usr:$naive_pass@$naive_domain:$naive_port
+EOF
+}
+
+
 ################################ Show configurations
 show_hysteria_conf() {
 clear
@@ -609,6 +697,11 @@ clear
 cat mieru/client_config.json
 echo
 cat temp/mi.txt
+}
+
+show_naive_conf() {
+clear
+cat temp/na.txt
 }
 
 
@@ -654,9 +747,12 @@ blue " ----------------------"
 echo -e " ${GREEN}10.${PLAIN} Install ${PINK}Mieru${PLAIN}"
 echo -e " ${GREEN}11.${PLAIN} ${RED}Uninstall Mieru${PLAIN}"
 echo -e " ${GREEN}12.${PLAIN} Show configuration link for Mieru"
+blue " ----------------------"
+echo -e " ${GREEN}13.${PLAIN} Install ${PINK}Naive${PLAIN}"
+echo -e " ${GREEN}14.${PLAIN} ${RED}Uninstall Naive${PLAIN}"
+echo -e " ${GREEN}15.${PLAIN} Show configuration link for Naive"
 echo ""
-
-read -p $'\033[1;32m Please select an option [0-12]: ' menuInput
+read -p $'\033[1;32m Please select an option [0-15]: ' menuInput
 
 
 case $menuInput in
@@ -672,6 +768,9 @@ case $menuInput in
     10 ) install_mieru ;;
     11 ) uninstall_mieru ;;
     12 ) show_mieru_conf ;;
+    13 ) install_naive ;;
+    14 ) uninstall_naive ;;
+    15 ) show_naive_conf ;;
     * ) exit 1 ;;
 esac
 

@@ -1,0 +1,13 @@
+version: '3'
+services:
+  naiveproxy:
+    container_name: naiveproxy
+    image: pocat/naiveproxy
+    network_mode: host
+    volumes:
+      - /etc/naiveproxy:/etc/naiveproxy
+      - /var/www/html:/var/www/html
+      - /var/log/caddy:/var/log/caddy
+    environment:
+      - PATH=/etc/naiveproxy/Caddyfile
+    restart: always
