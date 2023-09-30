@@ -44,8 +44,10 @@ echo -e "${YELLOW}https://github.com/SagerNet/SagerNet/releases/download/mieru-p
 echo
 echo -e "${GREEN}Naive (Naive plugin for Nekobox)${PLAIN}":
 echo -e "${YELLOW}https://github.com/SagerNet/SagerNet/releases/download/naive-plugin-116.0.5845.92-2/naive-plugin-116.0.5845.92-2-arm64-v8a.apk${PLAIN}"
-echo -e "${BLUE}========================================================${PLAIN}"
 echo
+echo -e "${GREEN}Juicity (Juicity plugin for Nekobox)${PLAIN}":
+echo -e "${YELLOW}https://github.com/MatsuriDayo/plugins/releases/download/juicity-v0.3.0/juicity-plugin-v0.3.0-arm64-v8a.apk${PLAIN}"
+echo -e "${BLUE}========================================================${PLAIN}"
 }
 
 # ipv4_to_6() {   #work in progress...
@@ -125,6 +127,13 @@ uninstall_naive() {
   rm -r /var/www/html
   rm -r /var/log/caddy
   green "Naiveproxy has been uninstalled."
+}
+
+uninstall_juicity() {
+  sudo rm juicity/juicity-server
+  rm /etc/systemd/system/juicity-server.service
+  rm temp/ju.txt
+  green "Juicity has been uninstalled."
 }
 
 
@@ -669,6 +678,111 @@ EOF
 }
 
 
+install_juicity() {
+rm temp/ju.txt
+clear
+if [ $( systemctl status juicity-server | grep active | wc -l ) -gt 0 ]; then
+  read -p "juicity proxy service is already running would you like to reinstall? (Y/n)" ju_reinstall
+  if [[ -z "$ju_reinstall" || $ju_reinstall = "Y" || $ju_reinstall = "y" ]]; then 
+    uninstall_juicity
+  else
+    exit 0
+  fi
+fi
+
+install_dependencies
+get_cert
+rm juicity/server.json
+auth_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
+uuid=$(uuidgen)
+server_ip=$(curl api.ipify.org)
+ipv6=$(curl -s6m8 ip.sb -k)
+
+
+if [ ! -f juicity/juicity-server ]; then 
+  wget https://github.com/juicity/juicity/releases/download/v0.3.0/juicity-linux-x86_64.zip
+  mv juicity-linux-x86_64.zip juicity
+  (cd juicity && unzip juicity-linux-x86_64.zip)
+  rm juicity/juicity-server.service
+  rm juicity/example-server.json
+  rm juicity/juicity-client.service
+  rm juicity/example-client.json
+  rm juicity/juicity-client
+  rm juicity/juicity-linux-x86_64.zip
+fi
+
+clear
+read -p "Enter the port to be used for Juicity [default 2087] : " ju_port
+[ -z "$ju_port" ] && ju_port=2087
+
+read -p "Enter the Sni to be used for Juicity [default hub.docker.com] : " ju_sni
+[ -z "$ju_sni" ] && ju_sni=hub.docker.com
+
+
+cat <<EOF > juicity/server.json
+{
+    "listen": ":$ju_port",
+    "users": {
+        "$uuid": "$auth_pass"
+    },
+    "certificate": "/root/Supernova/certs/cert.crt",
+    "private_key": "/root/Supernova/certs/private.key",
+    "congestion_control": "bbr",
+    "log_level": "info"
+}
+EOF
+
+cat <<EOF > /etc/systemd/system/juicity-server.service
+[Unit]
+Description=juicity-server Service
+Documentation=https://github.com/juicity/juicity
+After=network.target nss-lookup.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/root/Supernova/juicity/juicity-server run -c /root/Supernova/juicity/server.json --disable-timestamp
+Restart=on-failure
+LimitNPROC=512
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable juicity-server
+sudo systemctl start juicity-server
+
+clear
+clients
+
+blue "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1"
+echo
+red "Please manually enable allow insecure in your client or else it will not work"
+echo
+echo
+if [ ! -z "$ipv6" ]; then
+yellow "Irancell (Ipv6) : 
+juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1
+"
+echo "juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1" > temp/ju.txt
+fi
+
+qrencode -m 2 -t utf8 <<< "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1"
+
+
+cat <<EOF > temp/ju.txt
+juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1
+
+EOF
+
+}
+
+
+
+
+
 ################################ Show configurations
 show_hysteria_conf() {
 clear
@@ -702,6 +816,11 @@ cat temp/mi.txt
 show_naive_conf() {
 clear
 cat temp/na.txt
+}
+
+show_juicity_conf() {
+clear
+cat temp/ju.txt
 }
 
 
@@ -751,6 +870,10 @@ blue " ----------------------"
 echo -e " ${GREEN}13.${PLAIN} Install ${PINK}Naive${PLAIN}"
 echo -e " ${GREEN}14.${PLAIN} ${RED}Uninstall Naive${PLAIN}"
 echo -e " ${GREEN}15.${PLAIN} Show configuration link for Naive"
+blue " ----------------------"
+echo -e " ${GREEN}16.${PLAIN} Install ${PINK}Juicity${PLAIN}"
+echo -e " ${GREEN}17.${PLAIN} ${RED}Uninstall Juicity${PLAIN}"
+echo -e " ${GREEN}18.${PLAIN} Show configuration link for Juicity"
 echo ""
 read -p $'\033[1;32m Please select an option [0-15]: ' menuInput
 
@@ -771,6 +894,9 @@ case $menuInput in
     13 ) install_naive ;;
     14 ) uninstall_naive ;;
     15 ) show_naive_conf ;;
+    16 ) install_juicity ;;
+    17 ) uninstall_juicity ;;
+    18 ) show_juicity_conf ;;
     * ) exit 1 ;;
 esac
 
