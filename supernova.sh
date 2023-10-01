@@ -69,6 +69,7 @@ echo -e "${BLUE}========================================================${PLAIN}
 # ipv6_sub="::ffff:${arrVar[0]}${arrVar[1]}:${arrVar[2]}${arrVar[3]}"
 
 # }
+country_code=$(curl ipinfo.io | jq -r '.country')
 
 install_dependencies() {
   sudo apt update 
@@ -157,6 +158,7 @@ ipv6=$(curl -s6m8 ip.sb -k)
 clear
 read -p "Enter the port to be used for hysteria (default 443) : " hy_port
 [ -z "$hy_port" ] && hy_port=443
+[ $(lsof -i :$hy_port | grep :$hy_port | wc -l) -gt 0 ] && red "Port $hy_port is occupied. Please try another port" && exit 1
 
 
 cat <<EOF > hysteria/config.yaml
@@ -228,42 +230,42 @@ clients
 
 if [ -z "$obfs_pass" ]; then 
 blue "
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
 "
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
 "
 fi
 
-qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria"
+qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code"
 
 cat <<EOF > temp/hy.txt
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
 
 Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
 EOF
 else
 blue "
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20$country_code
 "
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
 "
 fi
 # Prints the qrcode for the specified link
-qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs"
+qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20$country_code"
 fi
 
 
 # Puts the link inside of temp file to be used in show_hysteria_conf function
 cat <<EOF > temp/hy.txt
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20$country_code
 
 Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
 EOF
 }
 
@@ -292,6 +294,8 @@ uuid=$(uuidgen)
 clear
 read -p "Enter the port to be used for tuic (default 8443) : " tuic_port
 [ -z "$tuic_port" ] && tuic_port=8443
+[ $(lsof -i :$tuic_port | grep :$tuic_port | wc -l) -gt 0 ] && red "Port $tuic_port is occupied. Please try another port" && exit 1
+
 
 cat <<EOF > tuic/config.json
 {
@@ -323,23 +327,23 @@ EOF
 clear
 clients
 
-blue "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic"
+blue "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code"
 echo
 echo
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic
+tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code
 "
 fi
 
-qrencode -m 2 -t utf8 <<< "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic"
+qrencode -m 2 -t utf8 <<< "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code"
 
 
 cat <<EOF > temp/tuic.txt
-tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic
+tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code
 
 Irancell (Ipv6) : 
-tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic
+tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code
 EOF
 }
 
@@ -381,6 +385,8 @@ fi
 
 read -rp "Enter the port to be used for Brook (default 2096) : " br_port
 [ -z "$br_port" ] && br_port=2096
+[ $(lsof -i :$br_port | grep :$br_port | wc -l) -gt 0 ] && red "Port $br_port is occupied. Please try another port" && exit 1
+
 
 if [ $brook_pick -eq 3 ] || [ $brook_pick -eq 4 ]; then 
   read -p "Please enter your domain name : " br_domain
@@ -517,6 +523,8 @@ esac
 
   read -rp "Enter the port to be used for Mieru (default [2000-65535]) : " mi_port
   [ -z "$mi_port" ] && mi_port=$(shuf -i 2000-65535 -n 1)
+  [ $(lsof -i :$mi_port | grep :$mi_port | wc -l) -gt 0 ] && red "Port $mi_port is occupied. Please try another port" && exit 1
+
 
 rm mieru/server_config.json
 cat <<EOF > mieru/server_config.json
@@ -627,9 +635,11 @@ read -rp "Please enter your domain name : " naive_domain
 
 read -rp "Please enter the port to be used for Caddy [Default 80] : " caddy_port
 [ -z "$caddy_port" ] && caddy_port=80
+[ $(lsof -i :$caddy_port | grep :$caddy_port | wc -l) -gt 0 ] && red "Port $caddy_port is occupied. Please try another port" && exit 1
 
 read -rp "Please enter the port to be used for Naive proxy [Default 443] : " naive_port
 [ -z "$naive_port" ] && naive_port=443
+[ $(lsof -i :$naive_port | grep :$naive_port | wc -l) -gt 0 ] && red "Port $naive_port is occupied. Please try another port" && exit 1
 
 read -rp "Please enter the username for Naive proxy [Default random] : " naive_usr
 [ -z "$naive_usr" ] && naive_usr=$(date +%s%N | md5sum | cut -c 1-8)
@@ -714,6 +724,7 @@ fi
 clear
 read -p "Enter the port to be used for Juicity [default 2087] : " ju_port
 [ -z "$ju_port" ] && ju_port=2087
+[ $(lsof -i :$ju_port | grep :$ju_port | wc -l) -gt 0 ] && red "Port $ju_port is occupied. Please try another port" && exit 1
 
 read -p "Enter the Sni to be used for Juicity [default hub.docker.com] : " ju_sni
 [ -z "$ju_sni" ] && ju_sni=hub.docker.com
@@ -757,24 +768,23 @@ sudo systemctl start juicity-server
 clear
 clients
 
-blue "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1"
+blue "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code"
 echo
 red "Please manually enable allow insecure in your client or else it will not work"
 echo
 echo
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1
+juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code
 "
-echo "juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1" > temp/ju.txt
+echo "juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code" > temp/ju.txt
 fi
 
-qrencode -m 2 -t utf8 <<< "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1"
+qrencode -m 2 -t utf8 <<< "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code"
 
 
 cat <<EOF > temp/ju.txt
-juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1
-
+juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code
 EOF
 
 }
