@@ -1,0 +1,10 @@
+{
+    "listen": ":2087",
+    "users": {
+        "$uuid": "goober"
+    },
+    "certificate": "certs/cert.crt",
+    "private_key": "certs/private.key",
+    "congestion_control": "bbr",
+    "log_level": "info"
+}
