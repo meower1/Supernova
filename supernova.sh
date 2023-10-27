@@ -69,11 +69,11 @@ echo -e "${BLUE}========================================================${PLAIN}
 # ipv6_sub="::ffff:${arrVar[0]}${arrVar[1]}:${arrVar[2]}${arrVar[3]}"
 
 # }
-country_code=$(curl ipinfo.io | jq -r '.country')
 
 install_dependencies() {
+
   sudo apt update 
-  sudo apt install net-tools uuid-runtime wget qrencode -y
+  sudo apt install net-tools uuid-runtime wget qrencode jq curl -y
   if [ -x "$(command -v docker)" ]; then
     cyan "Docker is installed. Continueing..."
   else
@@ -82,6 +82,8 @@ install_dependencies() {
     sudo sh install-docker.sh
   fi 
 }
+
+country_code=$(curl ipinfo.io | jq -r '.country')
 
 get_cert() {
 
@@ -230,42 +232,42 @@ clients
 
 if [ -z "$obfs_pass" ]; then 
 blue "
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
 "
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
 "
 fi
 
-qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code"
+qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)"
 
 cat <<EOF > temp/hy.txt
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
 
 Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
 EOF
 else
 blue "
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20$country_code
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20($country_code)
 "
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
 "
 fi
 # Prints the qrcode for the specified link
-qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20$country_code"
+qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20($country_code)"
 fi
 
 
 # Puts the link inside of temp file to be used in show_hysteria_conf function
 cat <<EOF > temp/hy.txt
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20$country_code
+hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20($country_code)
 
 Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20$country_code
+hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
 EOF
 }
 
@@ -327,23 +329,23 @@ EOF
 clear
 clients
 
-blue "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code"
+blue "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)"
 echo
 echo
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code
+tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)
 "
 fi
 
-qrencode -m 2 -t utf8 <<< "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code"
+qrencode -m 2 -t utf8 <<< "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)"
 
 
 cat <<EOF > temp/tuic.txt
-tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code
+tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)
 
 Irancell (Ipv6) : 
-tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20$country_code
+tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)
 EOF
 }
 
@@ -768,23 +770,23 @@ sudo systemctl start juicity-server
 clear
 clients
 
-blue "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code"
+blue "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)"
 echo
 red "Please manually enable allow insecure in your client or else it will not work"
 echo
 echo
 if [ ! -z "$ipv6" ]; then
 yellow "Irancell (Ipv6) : 
-juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code
+juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)
 "
-echo "juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code" > temp/ju.txt
+echo "juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)" > temp/ju.txt
 fi
 
-qrencode -m 2 -t utf8 <<< "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code"
+qrencode -m 2 -t utf8 <<< "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)"
 
 
 cat <<EOF > temp/ju.txt
-juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20$country_code
+juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)
 EOF
 
 }
