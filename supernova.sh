@@ -73,7 +73,7 @@ echo -e "${BLUE}========================================================${PLAIN}
 install_dependencies() {
 
   sudo apt update 
-  sudo apt install net-tools uuid-runtime wget qrencode jq curl -y
+  sudo apt install net-tools uuid-runtime wget qrencode jq curl lsof -y
   if [ -x "$(command -v docker)" ]; then
     cyan "Docker is installed. Continueing..."
   else
