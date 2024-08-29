@@ -1,7 +1,9 @@
 #!/bin/bash
+#
+# Setup multiple udp based proxies
+
 
 export LANG=en_US.UTF-8
-
 ####################### Color pallete
 CYAN="\033[36m\033[01m"
 BLUE="\033[34m\033[01m"
@@ -11,7 +13,6 @@ PLAIN="\033[0m"
 RESET="\033[0m"
 RED="\033[31m\033[01m"
 YELLOW="\033[33m\033[01m"
-WHITE="\033[97m\033[01m"
 
 
 cyan() { echo -e "\033[36m\033[01m$1\033[0m"; }
@@ -21,7 +22,6 @@ red() { echo -e "\033[31m\033[01m$1\033[0m"; }
 green() { echo -e "\033[32m\033[01m$1\033[0m"; }
 yellow() { echo -e "\033[33m\033[01m$1\033[0m"; }
 magenta() { echo -e "\033[35m\033[01m$1\033[0m"; }
-white() { echo -e "\033[97m\033[01m$1\033[0m"; }
 #######################
 
 clients(){
@@ -226,6 +226,16 @@ echo "masquerade:
 " >> hysteria/config.yaml
 fi
 
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Set both buffers to 16 MB
+    sysctl -w net.core.rmem_max=16777216
+    sysctl -w net.core.wmem_max=16777216
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    # UDP send buffer doesn't exist on BSD, so there's no "sendspace" to set
+    sysctl -w kern.ipc.maxsockbuf=20971520
+    sysctl -w net.inet.udp.recvspace=16777216
+fi
+
 (cd hysteria && docker compose up -d)
 clear
 clients
@@ -294,8 +304,8 @@ server_ip=$(curl api.ipify.org)
 ipv6=$(curl -s6m8 ip.sb -k)
 uuid=$(uuidgen)
 clear
-read -p "Enter the port to be used for tuic (default 8443) : " tuic_port
-[ -z "$tuic_port" ] && tuic_port=8443
+read -p "Enter the port to be used for tuic (default 443) : " tuic_port
+[ -z "$tuic_port" ] && tuic_port=443
 [ $(lsof -i :$tuic_port | grep :$tuic_port | wc -l) -gt 0 ] && red "Port $tuic_port is occupied. Please try another port" && exit 1
 
 
@@ -712,7 +722,7 @@ ipv6=$(curl -s6m8 ip.sb -k)
 
 
 if [ ! -f juicity/juicity-server ]; then 
-  wget https://github.com/juicity/juicity/releases/download/v0.3.0/juicity-linux-x86_64.zip
+  wget https://github.com/juicity/juicity/releases/download/v0.4.3/juicity-linux-x86_64.zip
   mv juicity-linux-x86_64.zip juicity
   (cd juicity && unzip juicity-linux-x86_64.zip)
   rm juicity/juicity-server.service

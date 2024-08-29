@@ -1,4 +1,3 @@
-version: '3'
 services:
   naiveproxy:
     container_name: naiveproxy
@@ -10,4 +9,4 @@ services:
       - /var/log/caddy:/var/log/caddy
     environment:
       - PATH=/etc/naiveproxy/Caddyfile
-    restart: always
+    restart: on-failure
