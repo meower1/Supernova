@@ -1,9 +1,8 @@
-version: '3'
 services:
   brook:
     image: teddysun/brook
     container_name: brook
-    restart: always
+    restart: on-failure
     volumes:
       - ../domain_certs/cert.crt:/etc/brook/cert.crt:ro
       - ../domain_certs/private.key:/etc/brook/private.key:ro

@@ -1,9 +1,8 @@
-version: "3"
 services:
   tuic-server:
     container_name: tuic-server
     image: monkeyray/tuic:latest
-    restart: always
+    restart: on-failure
     network_mode: host
     volumes:
       - ./config.json:/etc/tuic/config.json:ro
