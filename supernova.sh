@@ -64,7 +64,11 @@ select_hysteria_obfs_mode() {
   local answer
 
   while true; do
-    read -rp "Select obfuscation mode [1] Salamander (default), [2] Gecko: " answer
+    echo
+    echo -e "Select obfuscation mode:"
+    echo -e "  ${BLUE}[1]${PLAIN} Salamander  ${GREEN}(default)${PLAIN}"
+    echo -e "  ${BLUE}[2]${PLAIN} Gecko"
+    read -rp "Choice: " answer
     [ -z "$answer" ] && answer=1
 
     case "$answer" in
@@ -593,7 +597,39 @@ install_hysteria() {
 rm -f temp/hy.txt
 clear
 
-read -rp "Select Hysteria setup method [1] Docker (default), [2] systemd service: " hy_setup_method
+# Detect any existing Hysteria installation (Docker or systemd) before asking setup method
+_hy_docker_exists=false
+_hy_systemd_exists=false
+
+if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx hysteria; then
+  _hy_docker_exists=true
+fi
+
+if systemctl list-unit-files hysteria-server.service --no-legend 2>/dev/null | grep -q hysteria-server.service || [ -f /etc/systemd/system/hysteria-server.service ]; then
+  _hy_systemd_exists=true
+fi
+
+if [ "$_hy_docker_exists" = true ] || [ "$_hy_systemd_exists" = true ]; then
+  if [ "$_hy_docker_exists" = true ] && [ "$_hy_systemd_exists" = true ]; then
+    yellow "An existing Hysteria installation was detected (Docker container + systemd service)."
+  elif [ "$_hy_docker_exists" = true ]; then
+    yellow "An existing Hysteria Docker container was detected."
+  else
+    yellow "An existing Hysteria systemd service was detected."
+  fi
+
+  if confirm_yes "Would you like to reinstall Hysteria?"; then
+    uninstall_hysteria
+  else
+    exit 0
+  fi
+fi
+
+echo
+echo -e "Select Hysteria setup method:"
+echo -e "  ${BLUE}[1]${PLAIN} Docker  ${GREEN}(default)${PLAIN}"
+echo -e "  ${BLUE}[2]${PLAIN} systemd service"
+read -rp "Choice: " hy_setup_method
 [ -z "$hy_setup_method" ] && hy_setup_method=1
 
 case "$hy_setup_method" in
@@ -601,22 +637,6 @@ case "$hy_setup_method" in
   2) hy_runtime=systemd ;;
   *) red "Invalid Hysteria setup method." && exit 1 ;;
 esac
-
-if [ "$hy_runtime" = "docker" ] && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx hysteria; then
-  if confirm_yes "Hysteria proxy container is already running would you like to reinstall?"; then 
-    uninstall_hysteria
-  else
-    exit 0
-  fi
-fi
-
-if [ "$hy_runtime" = "systemd" ] && { systemctl list-unit-files hysteria-server.service --no-legend 2>/dev/null | grep -q hysteria-server.service || [ -f /etc/systemd/system/hysteria-server.service ]; }; then
-  if confirm_yes "Hysteria systemd service already exists would you like to reinstall?"; then
-    uninstall_hysteria
-  else
-    exit 0
-  fi
-fi
 
 if [ "$hy_runtime" = "docker" ]; then
   install_hysteria_docker_dependencies
@@ -634,9 +654,9 @@ hy_country_code=$(get_country_code "$server_ip")
 hy_location_label=$(country_code_to_label "$hy_country_code")
 ipv6=$(curl -s6m8 ip.sb -k)
 clear
-read -p "Enter the port to be used for hysteria (default 443) : " hy_port
+read -rp "Hysteria port [default: 443]: " hy_port
 [ -z "$hy_port" ] && hy_port=443
-[ $(lsof -i :$hy_port | grep :$hy_port | wc -l) -gt 0 ] && red "Port $hy_port is occupied. Please try another port" && exit 1
+[ $(lsof -i :$hy_port | grep :$hy_port | wc -l) -gt 0 ] && red "Port $hy_port is occupied. Please try another port." && exit 1
 
 
 cat <<EOF > hysteria/config.yaml
@@ -697,30 +717,102 @@ EOF
   fi
 fi
 
-if confirm_yes "(allocates ports 80/443) Would you like to enable HTTP/HTTPS masquerade?"; then 
+if confirm_yes "Would you like to enable HTTP/HTTPS masquerade? [allocates ports 80/443]"; then
 
-if tcp_port_in_use 80; then
-  red "Port 80 is occupied. Disable masquerade or free port 80 before continuing."
-  exit 1
-fi
+  if tcp_port_in_use 80; then
+    red "Port 80 is occupied. Disable masquerade or free port 80 before continuing."
+    exit 1
+  fi
 
-if tcp_port_in_use 443; then
-  red "Port 443 is occupied. Disable masquerade or free port 443 before continuing."
-  exit 1
-fi
+  if tcp_port_in_use 443; then
+    red "Port 443 is occupied. Disable masquerade or free port 443 before continuing."
+    exit 1
+  fi
 
-read -p "Enter the address for masquerade website (Default vipofilm.com) : " masq_addr
-[ -z "$masq_addr" ] && masq_addr=vipofilm.com
+  echo
+  echo -e "Select masquerade mode:"
+  echo -e "  ${BLUE}[1]${PLAIN} Proxy  ${GREEN}(default)${PLAIN} — mirror a real website"
+  echo -e "  ${BLUE}[2]${PLAIN} String — return a static API-like response"
+  echo -e "  ${BLUE}[3]${PLAIN} File   — serve a local static site"
+  read -rp "Choice: " masq_type
+  [ -z "$masq_type" ] && masq_type=1
 
-echo "masquerade:
+  case "$masq_type" in
+    1)
+      read -rp "Masquerade website address [default: vipofilm.com]: " masq_addr
+      [ -z "$masq_addr" ] && masq_addr=vipofilm.com
+      cat <<EOF >> hysteria/config.yaml
+masquerade:
   type: proxy
   proxy:
     url: https://$masq_addr
-    rewriteHost: true 
-  listenHTTP: :80 
-  listenHTTPS: :443 
+    rewriteHost: true
+    insecure: false
+  listenHTTP: :80
+  listenHTTPS: :443
   forceHTTPS: true
-" >> hysteria/config.yaml
+EOF
+      ;;
+    2)
+      cat <<'EOF' >> hysteria/config.yaml
+masquerade:
+  type: string
+  string:
+    content: '{"status":"healthy","version":"1.0.0","timestamp":0}'
+    headers:
+      content-type: application/json
+      cache-control: no-store
+      x-request-id: 00000000-0000-0000-0000-000000000000
+    statusCode: 200
+  listenHTTP: :80
+  listenHTTPS: :443
+  forceHTTPS: true
+EOF
+      ;;
+    3)
+      mkdir -p hysteria/masq
+      cat <<'HTMLEOF' > hysteria/masq/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome to nginx!</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #fff; color: #333; margin: 0; padding: 40px; }
+    h1 { font-size: 2em; border-bottom: 1px solid #ddd; padding-bottom: 12px; }
+    p  { line-height: 1.6; }
+    a  { color: #067df7; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .footer { margin-top: 40px; font-size: 0.85em; color: #999; }
+  </style>
+</head>
+<body>
+  <h1>Welcome to nginx!</h1>
+  <p>If you see this page, the nginx web server is successfully installed and working.
+     Further configuration is required.</p>
+  <p>For online documentation and support please refer to
+     <a href="https://nginx.org/">nginx.org</a>.<br />
+     Commercial support is available at <a href="https://nginx.com/">nginx.com</a>.</p>
+  <p class="footer"><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+HTMLEOF
+      cat <<'EOF' >> hysteria/config.yaml
+masquerade:
+  type: file
+  file:
+    dir: /www/masq
+  listenHTTP: :80
+  listenHTTPS: :443
+  forceHTTPS: true
+EOF
+      cyan "Static masquerade site written to hysteria/masq/index.html"
+      ;;
+    *)
+      red "Invalid masquerade mode. Skipping masquerade configuration."
+      ;;
+  esac
 fi
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -741,6 +833,11 @@ else
   sudo install -m 0640 hysteria/config.yaml /etc/hysteria/config.yaml
   sudo install -m 0644 certs/cert.crt /etc/hysteria/certs/cert.crt
   sudo install -m 0640 certs/private.key /etc/hysteria/certs/private.key
+  if [ -d hysteria/masq ]; then
+    sudo mkdir -p /etc/hysteria/masq
+    sudo cp -r hysteria/masq/. /etc/hysteria/masq/
+    cyan "Masquerade static files installed to /etc/hysteria/masq/"
+  fi
   if id hysteria >/dev/null 2>&1; then
     sudo chown -R hysteria:hysteria /etc/hysteria
   fi
