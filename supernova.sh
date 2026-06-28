@@ -14,6 +14,29 @@ RESET="\033[0m"
 RED="\033[31m\033[01m"
 YELLOW="\033[33m\033[01m"
 
+reset_terminal() {
+  printf "%b" "$RESET"
+  if [ -n "$TERM" ] && [ "$TERM" != "dumb" ] && command -v tput >/dev/null 2>&1; then
+    tput sgr0 2>/dev/null || true
+  fi
+}
+
+handle_interrupt() {
+  reset_terminal
+  echo
+  exit 130
+}
+
+handle_terminate() {
+  reset_terminal
+  echo
+  exit 143
+}
+
+trap reset_terminal EXIT
+trap handle_interrupt INT
+trap handle_terminate TERM
+
 
 cyan() { echo -e "\033[36m\033[01m$1\033[0m"; }
 blue() { echo -e "\033[34m\033[01m$1\033[0m"; }
@@ -23,6 +46,340 @@ green() { echo -e "\033[32m\033[01m$1\033[0m"; }
 yellow() { echo -e "\033[33m\033[01m$1\033[0m"; }
 magenta() { echo -e "\033[35m\033[01m$1\033[0m"; }
 #######################
+
+is_yes() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    y|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+confirm_yes() {
+  local answer
+  read -rp "$1 (y/N) : " answer
+  is_yes "$answer"
+}
+
+select_hysteria_obfs_mode() {
+  local answer
+
+  while true; do
+    read -rp "Select obfuscation mode [1] Salamander (default), [2] Gecko: " answer
+    [ -z "$answer" ] && answer=1
+
+    case "$answer" in
+      1)
+        hysteria_obfs_mode=salamander
+        return 0
+        ;;
+      2)
+        hysteria_obfs_mode=gecko
+        return 0
+        ;;
+      *)
+        red "Invalid obfuscation mode. Please select 1 or 2."
+        ;;
+    esac
+  done
+}
+
+ensure_cert_file() {
+  local cert_file="$1"
+  if [ -d "$cert_file" ]; then
+    rm -rf "$cert_file"
+  fi
+}
+
+validate_cert_files() {
+  if [ ! -s certs/cert.crt ] || [ ! -f certs/cert.crt ]; then
+    red "Certificate generation failed: certs/cert.crt is missing or invalid."
+    exit 1
+  fi
+
+  if [ ! -s certs/private.key ] || [ ! -f certs/private.key ]; then
+    red "Certificate generation failed: certs/private.key is missing or invalid."
+    exit 1
+  fi
+}
+
+tcp_port_in_use() {
+  local port="$1"
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn "sport = :$port" 2>/dev/null | awk 'NR > 1 { found=1 } END { exit !found }'
+    return
+  fi
+
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+print_docker_commands() {
+  local service_name="$1"
+  local compose_dir="$2"
+
+  green "Management commands for $service_name:"
+  echo -e "${BLUE}Start:${PLAIN}   cd $compose_dir && docker compose up -d"
+  echo -e "${BLUE}Stop:${PLAIN}    cd $compose_dir && docker compose stop"
+  echo -e "${BLUE}Restart:${PLAIN} cd $compose_dir && docker compose restart"
+  echo -e "${BLUE}Logs:${PLAIN}    cd $compose_dir && docker compose logs -f"
+}
+
+print_systemd_commands() {
+  local service_name="$1"
+  local unit_name="$2"
+
+  green "Management commands for $service_name:"
+  echo -e "${BLUE}Start:${PLAIN}   sudo systemctl start $unit_name"
+  echo -e "${BLUE}Stop:${PLAIN}    sudo systemctl stop $unit_name"
+  echo -e "${BLUE}Restart:${PLAIN} sudo systemctl restart $unit_name"
+  echo -e "${BLUE}Status:${PLAIN}  sudo systemctl status $unit_name"
+  echo -e "${BLUE}Logs:${PLAIN}    sudo journalctl -u $unit_name -f"
+}
+
+print_qr_code() {
+  local config_link="$1"
+
+  if [ -x "$(command -v qrencode)" ]; then
+    qrencode -m 2 -t utf8 <<< "$config_link"
+  else
+    yellow "qrencode is not installed; skipping QR code output."
+  fi
+}
+
+curl_without_proxy() {
+  env -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy curl "$@"
+}
+
+proxy_env_is_set() {
+  [ -n "${ALL_PROXY:-}${all_proxy:-}${HTTPS_PROXY:-}${https_proxy:-}${HTTP_PROXY:-}${http_proxy:-}" ]
+}
+
+fetch_url() {
+  local url="$1"
+  local response
+
+  response=$(curl -fsSL --connect-timeout 4 --max-time 8 "$url" 2>/dev/null || true)
+  if [ -z "$response" ] && proxy_env_is_set; then
+    response=$(curl_without_proxy -fsSL --connect-timeout 4 --max-time 8 "$url" 2>/dev/null || true)
+  fi
+
+  printf '%s' "$response"
+}
+
+get_public_ip() {
+  local public_ip
+
+  public_ip=$(fetch_url https://api.ipify.org)
+  if [ -z "$public_ip" ]; then
+    public_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+
+  printf '%s' "$public_ip"
+}
+
+normalize_country_code() {
+  printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr -cd 'A-Z' | cut -c 1-2
+}
+
+is_valid_country_code() {
+  local code="$1"
+  [ ${#code} -eq 2 ] && [ "$code" != "XX" ]
+}
+
+extract_country_code() {
+  local response="$1"
+  local code
+
+  code=$(printf '%s' "$response" | tr -d '\r\n[:space:]')
+  if is_valid_country_code "$(normalize_country_code "$code")" && [ ${#code} -eq 2 ]; then
+    normalize_country_code "$code"
+    return
+  fi
+
+  code=$(printf '%s\n' "$response" | sed -nE 's/^loc=([A-Za-z]{2})$/\1/p' | head -1)
+  if is_valid_country_code "$(normalize_country_code "$code")"; then
+    normalize_country_code "$code"
+    return
+  fi
+
+  code=$(printf '%s' "$response" | grep -Eo '"(country_code|country_code2|countryCode|country|cc)"[[:space:]]*:[[:space:]]*"[A-Za-z]{2}"' | head -1 | sed -E 's/.*"([A-Za-z]{2})"$/\1/')
+  if is_valid_country_code "$(normalize_country_code "$code")"; then
+    normalize_country_code "$code"
+  fi
+}
+
+get_country_code() {
+  local lookup_ip="$1"
+  local detected_country
+  local response
+  local url
+  local geo_urls=()
+
+  if [ -n "$lookup_ip" ]; then
+    geo_urls=(
+      "https://ipinfo.io/$lookup_ip/country"
+      "https://get.geojs.io/v1/ip/country/$lookup_ip.json"
+      "https://api.iplocation.net/?ip=$lookup_ip"
+      "https://ipwho.is/$lookup_ip"
+      "https://ip.guide/$lookup_ip"
+      "https://ipapi.co/$lookup_ip/country/"
+      "http://ip-api.com/json/$lookup_ip?fields=status,countryCode"
+    )
+  else
+    geo_urls=(
+      "https://ipinfo.io/country"
+      "https://ifconfig.co/country-iso"
+      "https://www.cloudflare.com/cdn-cgi/trace"
+      "https://api.country.is"
+      "https://get.geojs.io/v1/ip/country.json"
+      "https://api.myip.com"
+      "https://ipwho.is/"
+    )
+  fi
+
+  for url in "${geo_urls[@]}"; do
+    response=$(fetch_url "$url")
+    detected_country=$(extract_country_code "$response")
+    if is_valid_country_code "$detected_country"; then
+      printf '%s' "$detected_country"
+      return
+    fi
+  done
+
+  printf 'XX'
+}
+
+country_code_to_flag() {
+  local code
+  local flag=""
+  local char
+  local ascii
+  local byte
+  local escape
+  local i
+
+  code=$(normalize_country_code "$1")
+  if ! is_valid_country_code "$code"; then
+    return 1
+  fi
+
+  for i in 0 1; do
+    char=${code:$i:1}
+    printf -v ascii '%d' "'$char"
+    byte=$((0xA6 + ascii - 65))
+    printf -v escape '\\xF0\\x9F\\x87\\x%02X' "$byte"
+    flag="$flag$(printf '%b' "$escape")"
+  done
+
+  printf '%s' "$flag"
+}
+
+country_code_to_label() {
+  local code
+  local flag
+
+  code=$(normalize_country_code "$1")
+  flag=$(country_code_to_flag "$code" || true)
+
+  if [ -n "$flag" ]; then
+    printf '%s' "$flag"
+  else
+    printf '%s' "${code:-XX}"
+  fi
+}
+
+install_hysteria_official_systemd() {
+  local installer_file
+  installer_file=$(mktemp)
+
+  if ! curl -fsSL --connect-timeout 10 --max-time 30 https://get.hy2.sh -o "$installer_file"; then
+    rm -f "$installer_file"
+    return 1
+  fi
+
+  if command -v timeout >/dev/null 2>&1; then
+    sudo env "ALL_PROXY=${ALL_PROXY:-}" "all_proxy=${all_proxy:-}" "HTTPS_PROXY=${HTTPS_PROXY:-}" "https_proxy=${https_proxy:-}" "HTTP_PROXY=${HTTP_PROXY:-}" "http_proxy=${http_proxy:-}" timeout 120s bash "$installer_file"
+  else
+    sudo env "ALL_PROXY=${ALL_PROXY:-}" "all_proxy=${all_proxy:-}" "HTTPS_PROXY=${HTTPS_PROXY:-}" "https_proxy=${https_proxy:-}" "HTTP_PROXY=${HTTP_PROXY:-}" "http_proxy=${http_proxy:-}" bash "$installer_file"
+  fi
+  local install_status=$?
+  rm -f "$installer_file"
+  return $install_status
+}
+
+install_hysteria_systemd_service_file() {
+  if ! id hysteria >/dev/null 2>&1; then
+    sudo useradd -r -d /var/lib/hysteria -m hysteria
+  fi
+
+  sudo mkdir -p /var/lib/hysteria
+  sudo chown hysteria:hysteria /var/lib/hysteria
+
+  cat <<EOF | sudo tee /etc/systemd/system/hysteria-server.service >/dev/null
+[Unit]
+Description=Hysteria Server Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/config.yaml
+WorkingDirectory=/var/lib/hysteria
+User=hysteria
+Group=hysteria
+Environment=HYSTERIA_LOG_LEVEL=info
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+validate_hysteria_binary() {
+  local hysteria_binary="$1"
+
+  if [ ! -f "$hysteria_binary" ]; then
+    return 1
+  fi
+
+  if [ ! -x "$hysteria_binary" ]; then
+    sudo chmod 755 "$hysteria_binary" || return 1
+  fi
+
+  "$hysteria_binary" version >/dev/null 2>&1
+}
+
+show_hysteria_manual_install_instructions() {
+  red "Failed to download or install the official Hysteria core for systemd."
+  yellow "Download the Hysteria Linux binary manually, install it at /usr/local/bin/hysteria, then restart this script and select the systemd method again."
+  yellow "Example for amd64:"
+  yellow "  curl -fL -o hysteria-linux-amd64 https://github.com/apernet/hysteria/releases/download/app/v2.9.3/hysteria-linux-amd64"
+  yellow "  sudo install -Dm755 hysteria-linux-amd64 /usr/local/bin/hysteria"
+  yellow "  /usr/local/bin/hysteria version"
+}
+
+install_hysteria_systemd_runtime() {
+  if [ -f /usr/local/bin/hysteria ]; then
+    if ! validate_hysteria_binary /usr/local/bin/hysteria; then
+      red "/usr/local/bin/hysteria exists but does not look like a valid Hysteria binary."
+      show_hysteria_manual_install_instructions
+      exit 1
+    fi
+    install_hysteria_systemd_service_file
+    return
+  fi
+
+  if install_hysteria_official_systemd; then
+    return
+  fi
+
+  show_hysteria_manual_install_instructions
+  exit 1
+}
 
 clients(){
 
@@ -70,38 +427,130 @@ echo -e "${BLUE}========================================================${PLAIN}
 
 # }
 
-install_dependencies() {
+install_base_dependencies() {
 
-  sudo apt update 
-  sudo apt install net-tools uuid-runtime wget qrencode jq curl lsof -y
+  sudo apt update || yellow "apt update failed; continuing with available package metadata."
+  sudo apt install --no-upgrade net-tools uuid-runtime wget qrencode jq curl lsof openssl -y || yellow "Some dependencies could not be installed; continuing with installed tools."
+
+  for required_cmd in curl lsof openssl; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+      red "$required_cmd is required but is not installed."
+      exit 1
+    fi
+  done
+}
+
+install_hysteria_base_dependencies() {
+  local missing_packages=()
+
+  for required_cmd in curl lsof openssl; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+      missing_packages+=("$required_cmd")
+    fi
+  done
+
+  if [ ${#missing_packages[@]} -gt 0 ]; then
+    sudo apt update || yellow "apt update failed; continuing with available package metadata."
+    sudo apt install --no-upgrade "${missing_packages[@]}" -y || yellow "Some Hysteria dependencies could not be installed; verifying installed tools."
+  fi
+
+  for required_cmd in curl lsof openssl; do
+    if ! command -v "$required_cmd" >/dev/null 2>&1; then
+      red "$required_cmd is required for Hysteria but is not installed."
+      exit 1
+    fi
+  done
+
+  if ! command -v qrencode >/dev/null 2>&1; then
+    yellow "qrencode is not installed; QR code output will be skipped."
+  fi
+}
+
+install_docker_dependencies() {
+  install_base_dependencies
+
   if [ -x "$(command -v docker)" ]; then
     cyan "Docker is installed. Continueing..."
   else
+    if [ "$SUPERNOVA_SKIP_DOCKER_INSTALL" = "1" ]; then
+      red "Docker is not installed and SUPERNOVA_SKIP_DOCKER_INSTALL=1 was set."
+      exit 1
+    fi
     pink "Installing Docker..."
     curl -fsSL https://get.docker.com -o install-docker.sh
     sudo sh install-docker.sh
   fi 
 }
 
-country_code=$(curl ipinfo.io | jq -r '.country')
+install_hysteria_docker_dependencies() {
+  install_hysteria_base_dependencies
+
+  if [ -x "$(command -v docker)" ]; then
+    cyan "Docker is installed. Continueing..."
+  else
+    if [ "$SUPERNOVA_SKIP_DOCKER_INSTALL" = "1" ]; then
+      red "Docker is not installed and SUPERNOVA_SKIP_DOCKER_INSTALL=1 was set."
+      exit 1
+    fi
+    pink "Installing Docker..."
+    curl -fsSL https://get.docker.com -o install-docker.sh
+    sudo sh install-docker.sh
+  fi
+}
+
+install_dependencies() {
+  install_docker_dependencies
+}
+
+country_code=$(get_country_code)
 
 get_cert() {
 
-# Check if certificates exist
-if [ -f certs/cert.crt ] && [ -f certs/private.key ]; then 
-    cyan "Found certificates. continuing..."
-else 
+mkdir -p certs
+ensure_cert_file certs/cert.crt
+ensure_cert_file certs/private.key
+
+if [ -s certs/cert.crt ] && [ -f certs/cert.crt ] && [ -s certs/private.key ] && [ -f certs/private.key ]; then 
+  cyan "Found certificates. continuing..."
+  return
+fi
 
 # Generate self signed certificate
-openssl ecparam -genkey -name prime256v1 -out certs/private.key
-openssl req -new -x509 -days 36500 -key certs/private.key -out certs/cert.crt -subj "/CN=bing.com"
+rm -f certs/cert.crt certs/private.key
 
+if ! openssl ecparam -genkey -name prime256v1 -out certs/private.key; then
+  red "Failed to generate certs/private.key."
+  exit 1
 fi
+
+if ! openssl req -new -x509 -days 36500 -key certs/private.key -out certs/cert.crt -subj "/CN=bing.com"; then
+  red "Failed to generate certs/cert.crt."
+  exit 1
+fi
+
+validate_cert_files
 }
 
 uninstall_hysteria() {
-  sudo docker rm -f hysteria
-  rm temp/hy.txt
+  if [ -x "$(command -v docker)" ]; then
+    sudo docker rm -f hysteria >/dev/null 2>&1 || true
+  fi
+
+  if [ -f /etc/hysteria/.supernova-managed ]; then
+    sudo systemctl disable --now hysteria-server.service >/dev/null 2>&1 || true
+    sudo rm -rf /etc/hysteria
+    sudo rm -f /etc/systemd/system/hysteria-server.service
+    sudo rm -f /etc/systemd/system/hysteria-server@.service
+    sudo rm -rf /etc/systemd/system/hysteria-server.service.d
+    sudo rm -f /usr/local/bin/hysteria
+    sudo rm -rf /var/lib/hysteria
+    if id hysteria >/dev/null 2>&1; then
+      sudo userdel hysteria >/dev/null 2>&1 || true
+    fi
+    sudo systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
+
+  rm -f temp/hy.txt
   green "Hysteria has been uninstalled."
 }
 
@@ -141,21 +590,48 @@ uninstall_juicity() {
 
 
 install_hysteria() {
-rm temp/hy.txt
+rm -f temp/hy.txt
 clear
-if [ $( docker ps -a | grep hysteria | wc -l ) -gt 0 ]; then
-  read -p "hysteria proxy container is already running would you like to reinstall? (Y/n)" hy_reinstall
-  if [[ -z "$hy_reinstall" || $hy_reinstall = "Y" || $hy_reinstall = "y" ]]; then 
+
+read -rp "Select Hysteria setup method [1] Docker (default), [2] systemd service: " hy_setup_method
+[ -z "$hy_setup_method" ] && hy_setup_method=1
+
+case "$hy_setup_method" in
+  1) hy_runtime=docker ;;
+  2) hy_runtime=systemd ;;
+  *) red "Invalid Hysteria setup method." && exit 1 ;;
+esac
+
+if [ "$hy_runtime" = "docker" ] && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx hysteria; then
+  if confirm_yes "Hysteria proxy container is already running would you like to reinstall?"; then 
     uninstall_hysteria
   else
     exit 0
   fi
 fi
-install_dependencies
+
+if [ "$hy_runtime" = "systemd" ] && { systemctl list-unit-files hysteria-server.service --no-legend 2>/dev/null | grep -q hysteria-server.service || [ -f /etc/systemd/system/hysteria-server.service ]; }; then
+  if confirm_yes "Hysteria systemd service already exists would you like to reinstall?"; then
+    uninstall_hysteria
+  else
+    exit 0
+  fi
+fi
+
+if [ "$hy_runtime" = "docker" ]; then
+  install_hysteria_docker_dependencies
+else
+  install_hysteria_base_dependencies
+fi
+
 get_cert
-rm hysteria/config.yaml
+rm -f hysteria/config.yaml
 auth_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
-server_ip=$(curl api.ipify.org)
+obfs_pass=""
+hysteria_obfs_mode=""
+server_ip=$(get_public_ip)
+hy_country_code=$(get_country_code "$server_ip")
+hy_location_label=$(country_code_to_label "$hy_country_code")
 ipv6=$(curl -s6m8 ip.sb -k)
 clear
 read -p "Enter the port to be used for hysteria (default 443) : " hy_port
@@ -196,21 +672,42 @@ acl:
   inline: 
     - reject(*.ir)
     - reject(all, udp/443)
-    - reject(geoip:ir)
 EOF
 
-read -p "Would you like to enable obfuscation? (Y/n) : " enable_obfs
+if confirm_yes "Would you like to enable obfuscation?"; then 
+  select_hysteria_obfs_mode
+  obfs_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
 
-if [[ -z "$enable_obfs" || $enable_obfs = "Y" || $enable_obfs = "y" ]]; then 
-obfs_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
-echo "obfs:
+  if [ "$hysteria_obfs_mode" = "gecko" ]; then
+cat <<EOF >> hysteria/config.yaml
+obfs:
+  type: gecko
+  gecko:
+    password: $obfs_pass
+    minPacketSize: 512
+    maxPacketSize: 1200
+EOF
+  else
+cat <<EOF >> hysteria/config.yaml
+obfs:
   type: salamander
   salamander:
-    password: $obfs_pass" >> hysteria/config.yaml
+    password: $obfs_pass
+EOF
+  fi
 fi
 
-read -p "Would you like to enable HTTP/HTTPS masquerade? (Y/n) : " enable_masq
-if [[ -z "$enable_masq" || $enable_masq = "Y" || $enable_masq = "y" ]]; then 
+if confirm_yes "(allocates ports 80/443) Would you like to enable HTTP/HTTPS masquerade?"; then 
+
+if tcp_port_in_use 80; then
+  red "Port 80 is occupied. Disable masquerade or free port 80 before continuing."
+  exit 1
+fi
+
+if tcp_port_in_use 443; then
+  red "Port 443 is occupied. Disable masquerade or free port 443 before continuing."
+  exit 1
+fi
 
 read -p "Enter the address for masquerade website (Default vipofilm.com) : " masq_addr
 [ -z "$masq_addr" ] && masq_addr=vipofilm.com
@@ -228,57 +725,83 @@ fi
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     # Set both buffers to 16 MB
-    sysctl -w net.core.rmem_max=16777216
-    sysctl -w net.core.wmem_max=16777216
+    sudo sysctl -w net.core.rmem_max=16777216
+    sudo sysctl -w net.core.wmem_max=16777216
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     # UDP send buffer doesn't exist on BSD, so there's no "sendspace" to set
-    sysctl -w kern.ipc.maxsockbuf=20971520
-    sysctl -w net.inet.udp.recvspace=16777216
+    sudo sysctl -w kern.ipc.maxsockbuf=20971520
+    sudo sysctl -w net.inet.udp.recvspace=16777216
 fi
 
-(cd hysteria && docker compose up -d)
+if [ "$hy_runtime" = "docker" ]; then
+  (cd hysteria && docker compose up -d)
+else
+  install_hysteria_systemd_runtime
+  sudo mkdir -p /etc/hysteria/certs /etc/systemd/system/hysteria-server.service.d
+  sudo install -m 0640 hysteria/config.yaml /etc/hysteria/config.yaml
+  sudo install -m 0644 certs/cert.crt /etc/hysteria/certs/cert.crt
+  sudo install -m 0640 certs/private.key /etc/hysteria/certs/private.key
+  if id hysteria >/dev/null 2>&1; then
+    sudo chown -R hysteria:hysteria /etc/hysteria
+  fi
+  echo "managed_by=supernova" | sudo tee /etc/hysteria/.supernova-managed >/dev/null
+  cat <<EOF | sudo tee /etc/systemd/system/hysteria-server.service.d/supernova.conf >/dev/null
+[Service]
+Restart=on-failure
+RestartSec=5s
+EOF
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now hysteria-server.service
+fi
+
 clear
 clients
 
-if [ -z "$obfs_pass" ]; then 
+hy_query="insecure=1&sni=google.com"
+hy_fragment="Hysteria%20($hy_location_label)"
+
+if [ -n "$obfs_pass" ]; then 
+hy_query="${hy_query}&obfs=$hysteria_obfs_mode&obfs-password=$obfs_pass"
+hy_fragment="Hysteria%20%2B%20Obfs%20($hy_location_label)"
+fi
+
+hy_link="hy2://$auth_pass@$server_ip:$hy_port/?$hy_query#$hy_fragment"
+
+if [ -n "$obfs_pass" ]; then
+  blue "Obfuscation mode: $hysteria_obfs_mode"
+fi
+
 blue "
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
+$hy_link
 "
+
 if [ ! -z "$ipv6" ]; then
+hy_ipv6_link="hy2://$auth_pass@[$ipv6]:$hy_port/?$hy_query#$hy_fragment"
 yellow "Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
+$hy_ipv6_link
 "
 fi
 
-qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)"
-
-cat <<EOF > temp/hy.txt
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
-
-Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
-EOF
-else
-blue "
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20($country_code)
-"
-if [ ! -z "$ipv6" ]; then
-yellow "Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
-"
-fi
-# Prints the qrcode for the specified link
-qrencode -m 2 -t utf8 <<< "hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20($country_code)"
-fi
-
+print_qr_code "$hy_link"
 
 # Puts the link inside of temp file to be used in show_hysteria_conf function
 cat <<EOF > temp/hy.txt
-hy2://$auth_pass@$server_ip:$hy_port/?insecure=1&sni=google.com&obfs-password=$obfs_pass#Hysteria%20%2B%20Obfs%20($country_code)
+$hy_link
+EOF
+
+if [ ! -z "$hy_ipv6_link" ]; then
+cat <<EOF >> temp/hy.txt
 
 Irancell (Ipv6) : 
-hy2://$auth_pass@[$ipv6]:$hy_port/?insecure=1&sni=google.com#Hysteria%20($country_code)
+$hy_ipv6_link
 EOF
+fi
+
+if [ "$hy_runtime" = "docker" ]; then
+  print_docker_commands "Hysteria" "hysteria"
+else
+  print_systemd_commands "Hysteria" "hysteria-server.service"
+fi
 }
 
 ############################ Tuic Section
@@ -287,8 +810,7 @@ install_tuic() {
 rm temp/tuic.txt
 clear
 if [ $( docker ps -a | grep tuic-server | wc -l ) -gt 0 ]; then
-  read -p "Tuic proxy container is already running would you like to reinstall? (Y/n)" tuic_reinstall
-  if [[ -z "$tuic_reinstall" || $tuic_reinstall = "Y" || $tuic_reinstall = "y" ]]; then 
+  if confirm_yes "Tuic proxy container is already running would you like to reinstall?"; then 
     uninstall_tuic
   else
     exit 0
@@ -300,7 +822,7 @@ install_dependencies
 get_cert
 
 tuic_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
-server_ip=$(curl api.ipify.org)
+server_ip=$(get_public_ip)
 ipv6=$(curl -s6m8 ip.sb -k)
 uuid=$(uuidgen)
 clear
@@ -348,7 +870,7 @@ tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mod
 "
 fi
 
-qrencode -m 2 -t utf8 <<< "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)"
+print_qr_code "tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)"
 
 
 cat <<EOF > temp/tuic.txt
@@ -357,6 +879,8 @@ tuic://$uuid:$tuic_pass@$server_ip:$tuic_port/?congestion_control=bbr&udp_relay_
 Irancell (Ipv6) : 
 tuic://$uuid:$tuic_pass@[$ipv6]:$tuic_port/?congestion_control=bbr&udp_relay_mode=native&alpn=h3%2Cspdy%2F3.1&allow_insecure=1#Tuic%20($country_code)
 EOF
+
+print_docker_commands "Tuic" "tuic"
 }
 
 ######################## Tuic Section End.
@@ -365,8 +889,7 @@ install_brook() {
 rm temp/br.txt
 clear
 if [ $( docker ps -a | grep brook | wc -l ) -gt 0 ]; then
-  read -p "Brook proxy container is already running would you like to reinstall? (Y/n)" br_reinstall
-  if [[ -z "$br_reinstall" || $br_reinstall = "Y" || $br_reinstall = "y" ]]; then 
+  if confirm_yes "Brook proxy container is already running would you like to reinstall?"; then 
     uninstall_Brook
   else
     exit 0
@@ -375,7 +898,7 @@ fi
 install_dependencies
 get_cert
 br_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
-server_ip=$(curl api.ipify.org)
+server_ip=$(get_public_ip)
 clear
 
 
@@ -486,13 +1009,14 @@ EOF
 
 fi
 
+print_docker_commands "Brook" "brook"
+
 }
 
 install_mieru() {
 rm temp/mi.txt
 if [ $( systemctl status mia | grep active | wc -l ) -gt 0 ]; then
-  read -p "Mieru proxy is already running would you like to reinstall? (Y/n)" mi_reinstall
-  if [[ -z "$mi_reinstall" || $mi_reinstall = "Y" || $mi_reinstall = "y" ]]; then 
+  if confirm_yes "Mieru proxy is already running would you like to reinstall?"; then 
     uninstall_mieru
   else
     exit 0
@@ -506,7 +1030,7 @@ fi
   curl -LSO https://github.com/enfein/mieru/releases/download/v1.15.1/mita_1.15.1_amd64.deb
   sudo dpkg -i mita_1.15.1_amd64.deb
 
-  server_ip=$(curl api.ipify.org)
+  server_ip=$(get_public_ip)
   clear
 
   pink "Mieru installation : "
@@ -626,8 +1150,7 @@ install_naive() {
 rm temp/na.txt
 clear
 if [ $( docker ps -a | grep naiveproxy | wc -l ) -gt 0 ]; then
-  read -p "naiveproxy proxy container is already running would you like to reinstall? (Y/n)" na_reinstall
-  if [[ -z "$na_reinstall" || $na_reinstall = "Y" || $na_reinstall = "y" ]]; then 
+  if confirm_yes "naiveproxy proxy container is already running would you like to reinstall?"; then 
     uninstall_naive
   else
     exit 0
@@ -638,7 +1161,7 @@ get_cert
 rm /etc/naiveproxy/Caddyfile
 mkdir -p /etc/naiveproxy /var/www/html /var/log/caddy
 auth_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
-server_ip=$(curl api.ipify.org)
+server_ip=$(get_public_ip)
 ipv6=$(curl -s6m8 ip.sb -k)
 clear
 
@@ -691,12 +1214,14 @@ blue "naive+https://$naive_usr:$naive_pass@$naive_domain:$naive_port"
 echo
 echo
 
-qrencode -m 2 -t utf8 <<< "naive+https://$naive_usr:$naive_pass@$naive_domain:$naive_port"
+print_qr_code "naive+https://$naive_usr:$naive_pass@$naive_domain:$naive_port"
 
 
-cat <<EOF > temp/tuic.txt
+cat <<EOF > temp/na.txt
 naive+https://$naive_usr:$naive_pass@$naive_domain:$naive_port
 EOF
+
+print_docker_commands "Naive" "naive"
 }
 
 
@@ -704,8 +1229,7 @@ install_juicity() {
 rm temp/ju.txt
 clear
 if [ $( systemctl status juicity-server | grep active | wc -l ) -gt 0 ]; then
-  read -p "juicity proxy service is already running would you like to reinstall? (Y/n)" ju_reinstall
-  if [[ -z "$ju_reinstall" || $ju_reinstall = "Y" || $ju_reinstall = "y" ]]; then 
+  if confirm_yes "juicity proxy service is already running would you like to reinstall?"; then 
     uninstall_juicity
   else
     exit 0
@@ -717,7 +1241,7 @@ get_cert
 rm juicity/server.json
 auth_pass=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 30 ; echo '')
 uuid=$(uuidgen)
-server_ip=$(curl api.ipify.org)
+server_ip=$(get_public_ip)
 ipv6=$(curl -s6m8 ip.sb -k)
 
 
@@ -792,12 +1316,14 @@ juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni
 echo "juicity://$uuid:$auth_pass@$[$ipv6]:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)" > temp/ju.txt
 fi
 
-qrencode -m 2 -t utf8 <<< "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)"
+print_qr_code "juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)"
 
 
 cat <<EOF > temp/ju.txt
 juicity://$uuid:$auth_pass@$server_ip:$ju_port/?congestion_control=bbr&sni=$ju_sni&allow_insecure=1#Juicity%20($country_code)
 EOF
+
+print_systemd_commands "Juicity" "juicity-server.service"
 
 }
 
@@ -812,7 +1338,7 @@ clients
 cat temp/hy.txt
 echo
 hy_qr=$(cat temp/hy.txt)
-qrencode -m 2 -t utf8 <<< "$hy_qr"
+print_qr_code "$hy_qr"
 }
 
 show_tuic_conf() {
@@ -820,7 +1346,7 @@ clear
 cat temp/tuic.txt
 echo
 tuic_qr=$(cat temp/tuic.txt)
-qrencode -m 2 -t utf8 <<< "$tuic_qr"
+print_qr_code "$tuic_qr"
 }
 
 show_brook_conf() {
