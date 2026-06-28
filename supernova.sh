@@ -833,7 +833,7 @@ else
   sudo install -m 0640 hysteria/config.yaml /etc/hysteria/config.yaml
   sudo install -m 0644 certs/cert.crt /etc/hysteria/certs/cert.crt
   sudo install -m 0640 certs/private.key /etc/hysteria/certs/private.key
-  if [ -d hysteria/masq ]; then
+  if [ "${masq_type:-}" = "3" ] && [ -d hysteria/masq ]; then
     sudo mkdir -p /etc/hysteria/masq
     sudo cp -r hysteria/masq/. /etc/hysteria/masq/
     cyan "Masquerade static files installed to /etc/hysteria/masq/"
