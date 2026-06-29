@@ -41,6 +41,17 @@ bash supernova.sh show
 bash supernova.sh uninstall
 ```
 
+After install, Supernova adds a managed `hy2` command to your `PATH`:
+
+```bash
+hy2 start
+hy2 stop
+hy2 logs
+hy2 show
+hy2 update
+hy2 delete
+```
+
 ## Generated Files
 
 Supernova writes runtime files to:
@@ -51,6 +62,7 @@ Supernova writes runtime files to:
 /opt/supernova/certs/cert.crt
 /opt/supernova/certs/private.key
 /opt/supernova/state/hy.txt
+/opt/supernova/state/runtime
 ```
 
 For systemd installs, the active Hysteria config is copied to `/etc/hysteria/config.yaml`.
@@ -59,22 +71,18 @@ On Linux, Supernova also writes `/etc/sysctl.d/90-supernova-hysteria.conf` when 
 
 ## Management
 
-For Docker installs:
+Use the `hy2` command for both Docker and systemd installs:
 
 ```bash
-docker compose -f /opt/supernova/hysteria/compose.yaml up -d
-docker compose -f /opt/supernova/hysteria/compose.yaml logs -f
-docker compose -f /opt/supernova/hysteria/compose.yaml restart
-docker compose -f /opt/supernova/hysteria/compose.yaml stop
+hy2 start
+hy2 stop
+hy2 logs
+hy2 show
+hy2 update
+hy2 delete
 ```
 
-For systemd installs:
-
-```bash
-sudo systemctl status hysteria-server.service
-sudo systemctl restart hysteria-server.service
-sudo journalctl -u hysteria-server.service -f
-```
+`hy2 update` updates the Docker image for Docker installs or the Hysteria core for systemd installs. It downloads the update before recreating/restarting the running instance.
 
 ## License
 

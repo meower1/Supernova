@@ -21,6 +21,8 @@ HY_MASQ_DIR="$HY_DIR/masq"
 HY_CONFIG="$HY_DIR/config.yaml"
 HY_COMPOSE="$HY_DIR/compose.yaml"
 HY_LINK_FILE="$STATE_DIR/hy.txt"
+HY_RUNTIME_FILE="$STATE_DIR/runtime"
+HY_MANAGER_BIN="/usr/local/bin/hy2"
 SYSCTL_CONF_FILE="/etc/sysctl.d/90-supernova-hysteria.conf"
 
 SUDO=""
@@ -165,19 +167,22 @@ tcp_port_in_use() {
 
 print_docker_commands() {
   green "Management commands for Hysteria:"
-  echo -e "${BLUE}Start:${PLAIN}   docker compose -f $HY_COMPOSE up -d"
-  echo -e "${BLUE}Stop:${PLAIN}    docker compose -f $HY_COMPOSE stop"
-  echo -e "${BLUE}Restart:${PLAIN} docker compose -f $HY_COMPOSE restart"
-  echo -e "${BLUE}Logs:${PLAIN}    docker compose -f $HY_COMPOSE logs -f"
+  echo -e "${BLUE}Start:${PLAIN}  hy2 start"
+  echo -e "${BLUE}Stop:${PLAIN}   hy2 stop"
+  echo -e "${BLUE}Logs:${PLAIN}   hy2 logs"
+  echo -e "${BLUE}Show:${PLAIN}   hy2 show"
+  echo -e "${BLUE}Update:${PLAIN} hy2 update"
+  echo -e "${BLUE}Delete:${PLAIN} hy2 delete"
 }
 
 print_systemd_commands() {
   green "Management commands for Hysteria:"
-  echo -e "${BLUE}Start:${PLAIN}   sudo systemctl start hysteria-server.service"
-  echo -e "${BLUE}Stop:${PLAIN}    sudo systemctl stop hysteria-server.service"
-  echo -e "${BLUE}Restart:${PLAIN} sudo systemctl restart hysteria-server.service"
-  echo -e "${BLUE}Status:${PLAIN}  sudo systemctl status hysteria-server.service"
-  echo -e "${BLUE}Logs:${PLAIN}    sudo journalctl -u hysteria-server.service -f"
+  echo -e "${BLUE}Start:${PLAIN}  hy2 start"
+  echo -e "${BLUE}Stop:${PLAIN}   hy2 stop"
+  echo -e "${BLUE}Logs:${PLAIN}   hy2 logs"
+  echo -e "${BLUE}Show:${PLAIN}   hy2 show"
+  echo -e "${BLUE}Update:${PLAIN} hy2 update"
+  echo -e "${BLUE}Delete:${PLAIN} hy2 delete"
 }
 
 print_qr_code() {
@@ -428,6 +433,453 @@ install_hysteria_systemd_runtime() {
 
   show_hysteria_manual_install_instructions
   exit 1
+}
+
+hy2_manager_is_managed() {
+  [ -f "$HY_MANAGER_BIN" ] && grep -q 'Managed by Supernova' "$HY_MANAGER_BIN" 2>/dev/null
+}
+
+ensure_hy2_manager_can_install() {
+  if [ -e "$HY_MANAGER_BIN" ] && ! hy2_manager_is_managed; then
+    red "$HY_MANAGER_BIN already exists and is not managed by Supernova."
+    red "Move or remove it before installing Hysteria with Supernova."
+    exit 1
+  fi
+}
+
+remove_hy2_manager() {
+  if hy2_manager_is_managed; then
+    $SUDO rm -f "$HY_MANAGER_BIN"
+  elif [ -e "$HY_MANAGER_BIN" ]; then
+    yellow "$HY_MANAGER_BIN exists but is not managed by Supernova; leaving it untouched."
+  fi
+}
+
+write_hysteria_runtime_state() {
+  local runtime="$1"
+
+  ensure_runtime_dirs
+  printf '%s\n' "$runtime" | $SUDO tee "$HY_RUNTIME_FILE" >/dev/null
+  $SUDO chmod 0644 "$HY_RUNTIME_FILE"
+}
+
+install_hy2_manager() {
+  local manager_tmp
+
+  ensure_hy2_manager_can_install
+  manager_tmp=$(mktemp)
+
+  cat > "$manager_tmp" <<EOF
+#!/usr/bin/env bash
+# Managed by Supernova. Do not edit manually.
+
+SUPERNOVA_HOME="$SUPERNOVA_HOME"
+HY_DIR="$HY_DIR"
+CERT_DIR="$CERT_DIR"
+STATE_DIR="$STATE_DIR"
+HY_CONFIG="$HY_CONFIG"
+HY_COMPOSE="$HY_COMPOSE"
+HY_LINK_FILE="$HY_LINK_FILE"
+HY_RUNTIME_FILE="$HY_RUNTIME_FILE"
+HY_MANAGER_BIN="$HY_MANAGER_BIN"
+SYSCTL_CONF_FILE="$SYSCTL_CONF_FILE"
+SYSTEMD_SERVICE="hysteria-server.service"
+EOF
+
+  cat >> "$manager_tmp" <<'MANAGER_EOF'
+
+SUDO=""
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  SUDO="sudo"
+fi
+
+die() {
+  echo "hy2: $*" >&2
+  exit 1
+}
+
+info() {
+  echo "hy2: $*"
+}
+
+require_privileges() {
+  if [ -n "$SUDO" ] && ! command -v sudo >/dev/null 2>&1; then
+    die "this command needs root privileges, but sudo is not installed"
+  fi
+}
+
+docker_ps_names() {
+  command -v docker >/dev/null 2>&1 || return 1
+
+  if docker ps -a --format '{{.Names}}' 2>/dev/null; then
+    return 0
+  fi
+
+  if [ -n "$SUDO" ] && command -v sudo >/dev/null 2>&1; then
+    $SUDO docker ps -a --format '{{.Names}}' 2>/dev/null
+    return
+  fi
+
+  return 1
+}
+
+docker_container_exists() {
+  docker_ps_names | grep -qx hysteria
+}
+
+docker_runtime_valid_for_state() {
+  [ -f "$HY_COMPOSE" ] && [ -f "$HY_CONFIG" ]
+}
+
+docker_runtime_detected() {
+  docker_runtime_valid_for_state && docker_container_exists
+}
+
+systemd_runtime_detected() {
+  [ -f /etc/hysteria/.supernova-managed ] && return 0
+  [ -f /etc/systemd/system/hysteria-server.service ] && return 0
+  command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files "$SYSTEMD_SERVICE" --no-legend 2>/dev/null | grep -q "$SYSTEMD_SERVICE"
+}
+
+state_runtime() {
+  local runtime
+
+  [ -f "$HY_RUNTIME_FILE" ] || return 1
+  runtime=$(cat "$HY_RUNTIME_FILE" 2>/dev/null | tr -d '[:space:]')
+
+  case "$runtime" in
+    docker)
+      docker_runtime_valid_for_state && printf '%s' docker && return 0
+      ;;
+    systemd)
+      systemd_runtime_detected && printf '%s' systemd && return 0
+      ;;
+  esac
+
+  return 1
+}
+
+detect_runtime() {
+  local runtime
+  local docker_detected=false
+  local systemd_detected=false
+
+  runtime=$(state_runtime || true)
+  if [ -n "$runtime" ]; then
+    printf '%s' "$runtime"
+    return 0
+  fi
+
+  if docker_runtime_detected; then
+    docker_detected=true
+  fi
+
+  if systemd_runtime_detected; then
+    systemd_detected=true
+  fi
+
+  if [ "$docker_detected" = true ] && [ "$systemd_detected" = true ]; then
+    printf '%s' both
+    return 0
+  fi
+
+  if [ "$docker_detected" = true ]; then
+    printf '%s' docker
+    return 0
+  fi
+
+  if [ "$systemd_detected" = true ]; then
+    printf '%s' systemd
+    return 0
+  fi
+
+  return 1
+}
+
+require_single_runtime() {
+  local action="$1"
+  local runtime
+
+  runtime=$(detect_runtime || true)
+  case "$runtime" in
+    docker|systemd)
+      printf '%s' "$runtime"
+      ;;
+    both)
+      die "both Docker and systemd Hysteria installs were detected; cannot safely run '$action' without a valid $HY_RUNTIME_FILE"
+      ;;
+    *)
+      die "no managed Hysteria install was found"
+      ;;
+  esac
+}
+
+docker_cmd() {
+  command -v docker >/dev/null 2>&1 || die "docker is not installed"
+
+  if docker ps >/dev/null 2>&1; then
+    docker "$@"
+  else
+    require_privileges
+    $SUDO docker "$@"
+  fi
+}
+
+docker_compose() {
+  [ -f "$HY_COMPOSE" ] || die "Docker compose file not found at $HY_COMPOSE"
+  docker_cmd compose -f "$HY_COMPOSE" "$@"
+}
+
+systemctl_cmd() {
+  command -v systemctl >/dev/null 2>&1 || die "systemctl is not available"
+  require_privileges
+  $SUDO systemctl "$@"
+}
+
+start_hysteria() {
+  case "$(require_single_runtime start)" in
+    docker) docker_compose up -d ;;
+    systemd) systemctl_cmd start "$SYSTEMD_SERVICE" ;;
+  esac
+}
+
+stop_docker() {
+  if docker_runtime_valid_for_state; then
+    docker_compose stop || true
+  elif docker_container_exists; then
+    docker_cmd stop hysteria || true
+  fi
+}
+
+stop_systemd() {
+  if systemd_runtime_detected; then
+    systemctl_cmd stop "$SYSTEMD_SERVICE" || true
+  fi
+}
+
+stop_hysteria() {
+  local runtime
+
+  runtime=$(state_runtime || true)
+  case "$runtime" in
+    docker)
+      stop_docker
+      return
+      ;;
+    systemd)
+      stop_systemd
+      return
+      ;;
+  esac
+
+  runtime=$(detect_runtime || true)
+  case "$runtime" in
+    docker) stop_docker ;;
+    systemd) stop_systemd ;;
+    both)
+      stop_docker
+      stop_systemd
+      ;;
+    *) die "no managed Hysteria install was found" ;;
+  esac
+}
+
+logs_hysteria() {
+  case "$(require_single_runtime logs)" in
+    docker) docker_compose logs -f ;;
+    systemd)
+      command -v journalctl >/dev/null 2>&1 || die "journalctl is not available"
+      require_privileges
+      $SUDO journalctl -u "$SYSTEMD_SERVICE" -f
+      ;;
+  esac
+}
+
+read_link_file() {
+  [ -f "$HY_LINK_FILE" ] || die "no saved Hysteria configuration link was found at $HY_LINK_FILE"
+
+  if [ -r "$HY_LINK_FILE" ]; then
+    cat "$HY_LINK_FILE"
+  else
+    require_privileges
+    $SUDO cat "$HY_LINK_FILE"
+  fi
+}
+
+show_hysteria() {
+  require_single_runtime show >/dev/null
+  read_link_file
+  echo
+
+  if command -v qrencode >/dev/null 2>&1; then
+    read_link_file | head -1 | qrencode -m 2 -t utf8
+  fi
+}
+
+update_docker() {
+  info "Pulling latest Hysteria Docker image before touching the running container..."
+  docker_compose pull hysteria || die "Docker image pull failed; current Hysteria container was left untouched"
+  info "Image pull succeeded; recreating Hysteria container..."
+  docker_compose up -d --force-recreate
+}
+
+install_supernova_systemd_unit() {
+  local service_tmp
+  local override_tmp
+
+  require_privileges
+  if ! id hysteria >/dev/null 2>&1; then
+    $SUDO useradd -r -d /var/lib/hysteria -m hysteria
+  fi
+
+  $SUDO mkdir -p /var/lib/hysteria /etc/systemd/system/hysteria-server.service.d
+  $SUDO chown hysteria:hysteria /var/lib/hysteria
+
+  service_tmp=$(mktemp)
+  cat > "$service_tmp" <<'SERVICE_EOF'
+[Unit]
+Description=Hysteria Server Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/config.yaml
+WorkingDirectory=/var/lib/hysteria
+User=hysteria
+Group=hysteria
+Environment=HYSTERIA_LOG_LEVEL=info
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+  $SUDO install -D -m 0644 "$service_tmp" /etc/systemd/system/hysteria-server.service
+  rm -f "$service_tmp"
+
+  override_tmp=$(mktemp)
+  cat > "$override_tmp" <<'OVERRIDE_EOF'
+[Service]
+Restart=on-failure
+RestartSec=5s
+OVERRIDE_EOF
+  $SUDO install -D -m 0644 "$override_tmp" /etc/systemd/system/hysteria-server.service.d/supernova.conf
+  rm -f "$override_tmp"
+
+  echo "managed_by=supernova" | $SUDO tee /etc/hysteria/.supernova-managed >/dev/null
+  $SUDO chown -R hysteria:hysteria /etc/hysteria
+}
+
+run_official_hysteria_installer() {
+  local installer_file
+  local install_status
+
+  command -v curl >/dev/null 2>&1 || die "curl is not installed"
+  installer_file=$(mktemp)
+  if ! curl -fsSL --connect-timeout 10 --max-time 30 https://get.hy2.sh -o "$installer_file"; then
+    rm -f "$installer_file"
+    die "failed to download official Hysteria installer; current service was left running"
+  fi
+
+  require_privileges
+  if command -v timeout >/dev/null 2>&1; then
+    $SUDO env "ALL_PROXY=${ALL_PROXY:-}" "all_proxy=${all_proxy:-}" "HTTPS_PROXY=${HTTPS_PROXY:-}" "https_proxy=${https_proxy:-}" "HTTP_PROXY=${HTTP_PROXY:-}" "http_proxy=${http_proxy:-}" FORCE_NO_SYSTEMD=2 timeout 120s bash "$installer_file"
+  else
+    $SUDO env "ALL_PROXY=${ALL_PROXY:-}" "all_proxy=${all_proxy:-}" "HTTPS_PROXY=${HTTPS_PROXY:-}" "https_proxy=${https_proxy:-}" "HTTP_PROXY=${HTTP_PROXY:-}" "http_proxy=${http_proxy:-}" FORCE_NO_SYSTEMD=2 bash "$installer_file"
+  fi
+  install_status=$?
+  rm -f "$installer_file"
+  return $install_status
+}
+
+update_systemd() {
+  info "Downloading and installing latest Hysteria core before restarting the service..."
+  if ! run_official_hysteria_installer; then
+    die "Hysteria core update failed; existing service was not restarted"
+  fi
+
+  install_supernova_systemd_unit
+  systemctl_cmd daemon-reload
+  systemctl_cmd enable "$SYSTEMD_SERVICE"
+  systemctl_cmd restart "$SYSTEMD_SERVICE"
+}
+
+update_hysteria() {
+  case "$(require_single_runtime update)" in
+    docker) update_docker ;;
+    systemd) update_systemd ;;
+  esac
+}
+
+remove_docker() {
+  if docker_container_exists; then
+    docker_cmd rm -f hysteria >/dev/null 2>&1 || true
+  fi
+}
+
+remove_systemd() {
+  if [ -f /etc/hysteria/.supernova-managed ] || [ "$(cat "$HY_RUNTIME_FILE" 2>/dev/null | tr -d '[:space:]')" = "systemd" ]; then
+    require_privileges
+    $SUDO systemctl disable --now "$SYSTEMD_SERVICE" >/dev/null 2>&1 || true
+    $SUDO rm -rf /etc/hysteria
+    $SUDO rm -f /etc/systemd/system/hysteria-server.service
+    $SUDO rm -f /etc/systemd/system/hysteria-server@.service
+    $SUDO rm -rf /etc/systemd/system/hysteria-server.service.d
+    $SUDO rm -f /usr/local/bin/hysteria
+    $SUDO rm -rf /var/lib/hysteria
+    if id hysteria >/dev/null 2>&1; then
+      $SUDO userdel hysteria >/dev/null 2>&1 || true
+    fi
+    $SUDO systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
+}
+
+delete_hysteria() {
+  require_privileges
+  remove_docker
+  remove_systemd
+  $SUDO rm -f "$SYSCTL_CONF_FILE"
+  $SUDO rm -rf "$HY_DIR" "$STATE_DIR"
+  if [ -f "$HY_MANAGER_BIN" ] && grep -q 'Managed by Supernova' "$HY_MANAGER_BIN" 2>/dev/null; then
+    $SUDO rm -f "$HY_MANAGER_BIN"
+  fi
+}
+
+usage() {
+  cat <<USAGE_EOF
+Usage: hy2 <command>
+
+Commands:
+  start   Start Hysteria
+  stop    Stop Hysteria
+  logs    Follow Hysteria logs
+  show    Show saved Hysteria client link
+  update  Update Hysteria Docker image or native core
+  delete  Delete the Supernova-managed Hysteria install
+USAGE_EOF
+}
+
+case "${1:-}" in
+  start) start_hysteria ;;
+  stop) stop_hysteria ;;
+  logs) logs_hysteria ;;
+  show) show_hysteria ;;
+  update) update_hysteria ;;
+  delete|remove|uninstall) delete_hysteria ;;
+  -h|--help|help) usage ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac
+MANAGER_EOF
+
+  install_file "$manager_tmp" "$HY_MANAGER_BIN" 0755
+  rm -f "$manager_tmp"
 }
 
 clients() {
@@ -761,6 +1213,7 @@ uninstall_hysteria() {
     $SUDO systemctl daemon-reload >/dev/null 2>&1 || true
   fi
 
+  remove_hy2_manager
   $SUDO rm -f "$SYSCTL_CONF_FILE"
   $SUDO rm -rf "$HY_DIR" "$STATE_DIR"
   green "Hysteria has been uninstalled."
@@ -787,6 +1240,7 @@ install_hysteria() {
   clear
   require_privileges
   ensure_runtime_dirs
+  ensure_hy2_manager_can_install
   $SUDO rm -f "$HY_LINK_FILE"
 
   local hy_docker_exists=false
@@ -1058,6 +1512,8 @@ $hy_ipv6_link
     fi
   } | $SUDO tee "$HY_LINK_FILE" >/dev/null
   $SUDO chmod 0640 "$HY_LINK_FILE"
+  write_hysteria_runtime_state "$hy_runtime"
+  install_hy2_manager
 
   if [ "$hy_runtime" = "docker" ]; then
     print_docker_commands
