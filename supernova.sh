@@ -637,7 +637,10 @@ systemctl_cmd() {
 }
 
 start_hysteria() {
-  case "$(require_single_runtime start)" in
+  local runtime
+
+  runtime=$(require_single_runtime start) || exit $?
+  case "$runtime" in
     docker) docker_compose up -d ;;
     systemd) systemctl_cmd start "$SYSTEMD_SERVICE" ;;
   esac
@@ -685,7 +688,10 @@ stop_hysteria() {
 }
 
 logs_hysteria() {
-  case "$(require_single_runtime logs)" in
+  local runtime
+
+  runtime=$(require_single_runtime logs) || exit $?
+  case "$runtime" in
     docker) docker_compose logs -f ;;
     systemd)
       command -v journalctl >/dev/null 2>&1 || die "journalctl is not available"
@@ -809,7 +815,10 @@ update_systemd() {
 }
 
 update_hysteria() {
-  case "$(require_single_runtime update)" in
+  local runtime
+
+  runtime=$(require_single_runtime update) || exit $?
+  case "$runtime" in
     docker) update_docker ;;
     systemd) update_systemd ;;
   esac
