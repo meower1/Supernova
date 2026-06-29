@@ -1,42 +1,78 @@
-# 💫 Supernova: Multi-Protocol UDP Script
+# Supernova: Hysteria Installer
 
-Supernova is a setup script that supports the automatic setup of multiple Udp based proxy protocols. It aims to ease the setup of private proxy nodes to bypass GFI/GFW and is not intended for production use, May everyone have access to the free and open internet!
+Supernova is a single-file Bash installer for setting up a private Hysteria v2 server. It can run Hysteria with Docker Compose or as a native systemd service, generates a self-signed certificate, and prints a client import link plus an optional QR code.
 
-## 🌟 Supported Protocols
+This project is intended for personal/private proxy nodes, not production infrastructure.
 
-Supernova currently supports the following protocols:
+## Features
 
-> I do not own these protocols. Supernova is simply setting them up using the documentation from their official repositories.
+- Hysteria v2 only
+- Docker Compose or systemd runtime
+- Automatic self-signed certificate generation
+- Optional Salamander or Gecko obfuscation
+- Optional HTTP/HTTPS masquerade
+- IPv4 and IPv6 client link output
+- Runtime files generated under `/opt/supernova`
 
-- **Hysteria v2**
-- **Tuic v5**
-- **Brook**
-- **Mieru**
-- **Juicity**
-- **Naive**
+## One-Command Install
 
-## 📚 Key Features
+Run this on the server:
 
-- **Customization for Hysteria**: Customizable obfuscation and masquarade
+```bash
+curl -fsSL https://raw.githubusercontent.com/meower1/Supernova/main/supernova.sh -o /tmp/supernova.sh && bash /tmp/supernova.sh install
+```
 
-- **IPv6 Configuration**: Provides an ipv6 config if your server supports it
+The script is downloaded first instead of piped directly into Bash so the interactive prompts can read from your terminal correctly.
 
-- **Docker Compatibility**: Most of the protocols run on docker for ease of management and security
+## Local Usage
 
-- **Automatic Certificate Generation**: Wether you have a domain or not supernova will generate a certificate for you which will be saved in `certs/` or `domain_certs/`
-
-- **Configurations**: All of the configurations are saved in the related folder in the project directory.
-
-## 🌟 Contribution
-
-Feel free to contribute, report issues, or suggest improvements. We welcome your feedback and contributions to make Supernova even better!
-
-## ⚙️ Setup
-
-Enter the following commands in your terminal
-
-```shell
+```bash
 git clone https://github.com/meower1/Supernova.git
 cd Supernova
 bash supernova.sh
 ```
+
+You can also call actions directly:
+
+```bash
+bash supernova.sh install
+bash supernova.sh show
+bash supernova.sh uninstall
+```
+
+## Generated Files
+
+Supernova writes runtime files to:
+
+```text
+/opt/supernova/hysteria/config.yaml
+/opt/supernova/hysteria/compose.yaml
+/opt/supernova/certs/cert.crt
+/opt/supernova/certs/private.key
+/opt/supernova/state/hy.txt
+```
+
+For systemd installs, the active Hysteria config is copied to `/etc/hysteria/config.yaml`.
+
+## Management
+
+For Docker installs:
+
+```bash
+docker compose -f /opt/supernova/hysteria/compose.yaml up -d
+docker compose -f /opt/supernova/hysteria/compose.yaml logs -f
+docker compose -f /opt/supernova/hysteria/compose.yaml restart
+docker compose -f /opt/supernova/hysteria/compose.yaml stop
+```
+
+For systemd installs:
+
+```bash
+sudo systemctl status hysteria-server.service
+sudo systemctl restart hysteria-server.service
+sudo journalctl -u hysteria-server.service -f
+```
+
+## License
+
+See [LICENSE](LICENSE).
