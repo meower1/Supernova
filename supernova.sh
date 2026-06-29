@@ -21,6 +21,7 @@ HY_MASQ_DIR="$HY_DIR/masq"
 HY_CONFIG="$HY_DIR/config.yaml"
 HY_COMPOSE="$HY_DIR/compose.yaml"
 HY_LINK_FILE="$STATE_DIR/hy.txt"
+SYSCTL_CONF_FILE="/etc/sysctl.d/90-supernova-hysteria.conf"
 
 SUDO=""
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
@@ -628,13 +629,117 @@ EOF
   rm -f "$index_tmp"
 }
 
+get_sysctl_value() {
+  local key="$1"
+  local value
+
+  value=$(sysctl -n "$key" 2>/dev/null || true)
+  case "$value" in
+    ''|*[!0-9]*) return 1 ;;
+    *) printf '%s' "$value" ;;
+  esac
+}
+
+apply_sysctl_minimum() {
+  local key="$1"
+  local target_value="$2"
+  local current_value
+
+  current_value=$(get_sysctl_value "$key") || {
+    yellow "Could not read $key; skipping UDP buffer tuning for this setting."
+    return 1
+  }
+
+  if [ "$current_value" -ge "$target_value" ]; then
+    cyan "$key is already $current_value; leaving it unchanged."
+    return 0
+  fi
+
+  if $SUDO sysctl -w "$key=$target_value" >/dev/null 2>&1; then
+    cyan "Raised $key from $current_value to $target_value."
+    return 0
+  fi
+
+  yellow "Could not raise $key to $target_value; continuing without this tuning."
+  return 1
+}
+
+write_linux_udp_buffer_persistence() {
+  local rmem_current="$1"
+  local wmem_current="$2"
+  local rmem_target="$3"
+  local wmem_target="$4"
+  local sysctl_tmp
+  local should_persist=false
+
+  sysctl_tmp=$(mktemp)
+  {
+    echo "# Managed by Supernova for Hysteria 2 UDP/QUIC performance."
+    echo "# Remove this file or run supernova.sh uninstall to stop persisting these settings."
+    if [ "$rmem_current" -le "$rmem_target" ]; then
+      echo "net.core.rmem_max = $rmem_target"
+      should_persist=true
+    fi
+    if [ "$wmem_current" -le "$wmem_target" ]; then
+      echo "net.core.wmem_max = $wmem_target"
+      should_persist=true
+    fi
+  } > "$sysctl_tmp"
+
+  if [ "$should_persist" = true ]; then
+    if install_file "$sysctl_tmp" "$SYSCTL_CONF_FILE" 0644; then
+      cyan "Persistent UDP buffer tuning written to $SYSCTL_CONF_FILE."
+    else
+      yellow "Could not write $SYSCTL_CONF_FILE; UDP buffer tuning will not persist after reboot."
+    fi
+  else
+    $SUDO rm -f "$SYSCTL_CONF_FILE"
+    cyan "UDP buffers already exceed Hysteria's recommended values; no persistent sysctl override was written."
+  fi
+
+  rm -f "$sysctl_tmp"
+}
+
+apply_linux_udp_buffer_tuning() {
+  local rmem_target=16777216
+  local wmem_target=16777216
+  local rmem_current
+  local wmem_current
+
+  if ! command -v sysctl >/dev/null 2>&1; then
+    yellow "sysctl is not available; skipping UDP buffer tuning."
+    return
+  fi
+
+  rmem_current=$(get_sysctl_value net.core.rmem_max) || {
+    yellow "Could not read net.core.rmem_max; skipping Linux UDP buffer tuning."
+    return
+  }
+  wmem_current=$(get_sysctl_value net.core.wmem_max) || {
+    yellow "Could not read net.core.wmem_max; skipping Linux UDP buffer tuning."
+    return
+  }
+
+  write_linux_udp_buffer_persistence "$rmem_current" "$wmem_current" "$rmem_target" "$wmem_target"
+  apply_sysctl_minimum net.core.rmem_max "$rmem_target" || true
+  apply_sysctl_minimum net.core.wmem_max "$wmem_target" || true
+}
+
+apply_darwin_udp_buffer_tuning() {
+  if ! command -v sysctl >/dev/null 2>&1; then
+    yellow "sysctl is not available; skipping UDP buffer tuning."
+    return
+  fi
+
+  apply_sysctl_minimum kern.ipc.maxsockbuf 20971520 || true
+  apply_sysctl_minimum net.inet.udp.recvspace 16777216 || true
+}
+
 apply_udp_buffer_tuning() {
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    $SUDO sysctl -w net.core.rmem_max=16777216
-    $SUDO sysctl -w net.core.wmem_max=16777216
+    apply_linux_udp_buffer_tuning
   elif [[ "$OSTYPE" == "darwin"* ]]; then
-    $SUDO sysctl -w kern.ipc.maxsockbuf=20971520
-    $SUDO sysctl -w net.inet.udp.recvspace=16777216
+    apply_darwin_udp_buffer_tuning
   fi
 }
 
@@ -656,6 +761,7 @@ uninstall_hysteria() {
     $SUDO systemctl daemon-reload >/dev/null 2>&1 || true
   fi
 
+  $SUDO rm -f "$SYSCTL_CONF_FILE"
   $SUDO rm -rf "$HY_DIR" "$STATE_DIR"
   green "Hysteria has been uninstalled."
 }

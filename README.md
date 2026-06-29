@@ -13,6 +13,7 @@ This project is intended for personal/private proxy nodes, not production infras
 - Optional HTTP/HTTPS masquerade
 - IPv4 and IPv6 client link output
 - Runtime files generated under `/opt/supernova`
+- Linux UDP buffer tuning persisted through `/etc/sysctl.d/90-supernova-hysteria.conf`
 
 ## One-Command Install
 
@@ -53,6 +54,8 @@ Supernova writes runtime files to:
 ```
 
 For systemd installs, the active Hysteria config is copied to `/etc/hysteria/config.yaml`.
+
+On Linux, Supernova also writes `/etc/sysctl.d/90-supernova-hysteria.conf` when UDP buffer values need to be persisted for Hysteria performance. The file is removed by `bash supernova.sh uninstall`.
 
 ## Management
 
